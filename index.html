@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Prezi Editor</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      overflow: hidden;
+      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+    }
+    #canvas {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      user-select: none;
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      padding: 10px;
+      display: flex;
+      gap: 8px;
+    }
+    #toolbar button {
+      background: #0077cc;
+      border: none;
+      color: white;
+      padding: 10px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    #toolbar button:hover {
+      background: #005fa3;
+    }
+    #breadcrumb {
+      position: absolute;
+      top: 60px;
+      left: 10px;
+      z-index: 10;
+      font-family: monospace;
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid #ccc;
+      padding: 5px 10px;
+      border-radius: 5px;
+      user-select: none;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    #breadcrumb span {
+      cursor: pointer;
+      color: #0077cc;
+      margin-right: 5px;
+    }
+    #breadcrumb span:hover {
+      text-decoration: underline;
+    }
+    .slide {
+      position: absolute;
+      width: 250px;
+      height: 150px;
+      background: white;
+      border: 2px solid #333;
+      border-radius: 10px;
+      box-shadow: 4px 4px 15px rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+      overflow: hidden;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 10px;
+      box-sizing: border-box;
+      transition: transform 0.2s;
+    }
+    .slide:hover {
+      transform: translateY(-5px);
+    }
+    .slide.editing textarea {
+      width: 100%;
+      height: 100%;
+      resize: none;
+      border: none;
+      outline: none;
+      font: inherit;
+      box-sizing: border-box;
+      padding: 10px;
+      border-radius: 8px;
+      background: #f9f9f9;
+    }
+    /* Estilos para el menú contextual */
+    #context-menu {
+      position: absolute;
+      display: none;
+      background: white;
+      border: 1px solid #ccc;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      z-index: 100;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    #context-menu li {
+      list-style: none;
+      padding: 8px 15px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #context-menu li:hover {
+      background: #f2f2f2;
+    }
+  </style>
+</head>
+<body>
+<div id="canvas">
+  <svg id="connections" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:0;"></svg>
+  <div id="toolbar">
+    <button onclick="addSlide()">Añadir diapositiva</button>
+    <button onclick="goBack()">Atrás</button>
+    <button onclick="toggleConnectMode()">
+      <span id="connectModeLabel">Modo: Navegación</span>
+    </button>
+    <button onclick="exportDiagram()">Exportar Diagrama</button>
+    <button onclick="importDiagram()">Importar Diagrama</button>
+    <input type="file" id="fileInput" style="display:none" accept="application/json" />
+  </div>
+  <div id="breadcrumb"></div>
+  <div id="viewport"></div>
+  <ul id="context-menu">
+    <li id="rename-slide">Cambiar nombre</li>
+  </ul>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const viewport = document.getElementById('viewport');
+const connections = document.getElementById('connections');
+const connectModeLabel = document.getElementById('connectModeLabel');
+const breadcrumbDiv = document.getElementById('breadcrumb');
+const fileInput = document.getElementById('fileInput');
+const contextMenu = document.getElementById('context-menu');
+
+// Estructura raíz con diagrama completo
+let rootSlides = [{ id: 0, x: 100, y: 100, text: 'Inicio', children: [], connections: [] }];
+let navigationStack = [{ slides: rootSlides, title: 'Raíz' }];
+let editingSlideId = null;
+let translateX = 0;
+let translateY = 0;
+let scale = 1;
+let connectMode = false;
+let connectionStart = null;
+let draggingSlide = null;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let currentSlide = null;
+
+function getCurrentLevel() {
+  return navigationStack[navigationStack.length - 1];
+}
+
+function renderBreadcrumb() {
+  breadcrumbDiv.innerHTML = '';
+  navigationStack.forEach((level, idx) => {
+    const span = document.createElement('span');
+    span.textContent = level.title || `Nivel ${idx+1}`;
+    span.addEventListener('click', () => {
+      navigationStack = navigationStack.slice(0, idx+1);
+      translateX = 0;
+      translateY = 0;
+      scale = 1;
+      applyTransform();
+      renderSlides();
+      renderBreadcrumb();
+    });
+    breadcrumbDiv.appendChild(span);
+    if (idx < navigationStack.length - 1) {
+      const sep = document.createTextNode(' > ');
+      breadcrumbDiv.appendChild(sep);
+    }
+  });
+}
+
+function toggleConnectMode() {
+  connectMode = !connectMode;
+  connectModeLabel.textContent = connectMode ? 'Modo: Conexión' : 'Modo: Navegación';
+  connectionStart = null;
+  renderSlides();
+}
+
+function addConnectionLabel(slide, target) {
+  let conn = slide.connections.find(c => c.targetId === target.id);
+  
+  if (!conn) {
+    conn = { targetId: target.id, label: '' };
+    slide.connections.push(conn);
+  }
+
+  const newLabel = prompt("Ingrese el texto para esta conexión:", conn.label);
+  if (newLabel !== null) {
+    conn.label = newLabel;
+    renderSlides();
+  }
+}
+
+function showContextMenu(x, y, slide) {
+  currentSlide = slide;
+  contextMenu.style.display = 'block';
+  contextMenu.style.left = `${x}px`;
+  contextMenu.style.top = `${y}px`;
+}
+
+canvas.addEventListener('click', () => {
+  contextMenu.style.display = 'none'; // Oculta el menú contextual al hacer clic en cualquier parte
+});
+
+contextMenu.addEventListener('click', e => {
+  if (e.target.id === 'rename-slide') {
+    renameSlide(currentSlide);
+  }
+  contextMenu.style.display = 'none';
+});
+
+function renameSlide(slide) {
+  const newTitle = prompt("Ingrese el nuevo nombre para la tarjeta:", slide.text);
+  if (newTitle !== null && newTitle.trim() !== "") {
+    slide.text = newTitle;
+    renderSlides();
+    renderBreadcrumb();
+  }
+}
+
+function renderSlides() {
+  viewport.innerHTML = '';
+  const currentSlides = getCurrentLevel().slides;
+  currentSlides.forEach(slide => {
+    const div = document.createElement('div');
+    div.className = 'slide';
+    div.style.left = `${slide.x}px`;
+    div.style.top = `${slide.y}px`;
+    div.style.borderColor = (connectionStart === slide) ? '#f05a28' : '#333';
+    div.textContent = slide.text;
+    div.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (connectMode) {
+        if (!connectionStart) {
+          connectionStart = slide;
+          renderSlides();
+        } else if (connectionStart !== slide) {
+          if (!currentSlides.includes(slide) || !currentSlides.includes(connectionStart)) {
+            alert('Solo puedes conectar diapositivas del nivel actual');
+            connectionStart = null;
+            renderSlides();
+            return;
+          }
+
+          addConnectionLabel(connectionStart, slide);
+
+          const connExists = connectionStart.connections.some(c => c.targetId === slide.id);
+          if (!connExists) {
+            connectionStart.connections.push({ targetId: slide.id, label: '' });
+          }
+          connectionStart = null;
+          renderSlides();
+        }
+      } else {
+        if (!slide.children) slide.children = [];
+        navigationStack.push({ slides: slide.children, title: slide.text || 'Nuevo nivel' });
+        translateX = 0;
+        translateY = 0;
+        scale = 1;
+        applyTransform();
+        renderSlides();
+        renderBreadcrumb();
+      }
+    });
+    div.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showContextMenu(e.pageX, e.pageY, slide);
+    });
+    div.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      draggingSlide = slide;
+      dragOffsetX = e.offsetX;
+      dragOffsetY = e.offsetY;
+    });
+    viewport.appendChild(div);
+  });
+  drawConnections();
+}
+
+function goBack() {
+  if (navigationStack.length > 1) {
+    navigationStack.pop();
+    translateX = 0;
+    translateY = 0;
+    scale = 1;
+    applyTransform();
+    renderSlides();
+    renderBreadcrumb();
+  }
+}
+
+function applyTransform() {
+  viewport.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+  drawConnections();
+}
+
+function addSlide() {
+  const currentSlides = getCurrentLevel().slides;
+  const id = Date.now() + Math.floor(Math.random() * 1000);
+  const newSlide = { id, x: 100 + Math.random() * 600, y: 100 + Math.random() * 400, text: 'Nueva', children: [], connections: [] };
+  currentSlides.push(newSlide);
+  renderSlides();
+}
+
+function drawConnections() {
+  const savedDefs = connections.querySelector('defs');
+  connections.innerHTML = '';
+  if (savedDefs) connections.appendChild(savedDefs);
+  const currentSlides = getCurrentLevel().slides;
+  currentSlides.forEach(slide => {
+    slide.connections.forEach(conn => {
+      const child = currentSlides.find(s => s.id === conn.targetId);
+      if (child) {
+        const slideCenterX = slide.x + 125;
+        const slideCenterY = slide.y + 75;
+        const childCenterX = child.x + 125;
+        const childCenterY = child.y + 75;
+
+        const dirX = childCenterX - slideCenterX;
+        const dirY = childCenterY - slideCenterY;
+        const dist = Math.sqrt(dirX * dirX + dirY * dirY);
+
+        const offsetX = (dirX / dist) * 125;
+        const offsetY = (dirY / dist) * 75;
+
+        const pX = slideCenterX + offsetX;
+        const pY = slideCenterY + offsetY;
+        const cX = childCenterX - offsetX;
+        const cY = childCenterY - offsetY;
+
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", pX * scale + translateX);
+        line.setAttribute("y1", pY * scale + translateY);
+        line.setAttribute("x2", cX * scale + translateX);
+        line.setAttribute("y2", cY * scale + translateY);
+        line.setAttribute("stroke", "#f05a28");
+        line.setAttribute("stroke-width", "3");
+        line.setAttribute("marker-end", "url(#arrow)");
+        connections.appendChild(line);
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        const textX = (pX + cX) / 2 * scale + translateX - 10; // Desplaza el texto a la izquierda
+        const textY = (pY + cY) / 2 * scale + translateY - 10; // Desplaza el texto hacia arriba
+        text.setAttribute("x", textX);
+        text.setAttribute("y", textY);
+        text.setAttribute("fill", "#000");
+        text.setAttribute("font-size", "12");
+        text.setAttribute("text-anchor", "middle");
+        text.textContent = conn.label || '';
+        connections.appendChild(text);
+      }
+    });
+  });
+}
+
+function createArrowMarker() {
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+  marker.setAttribute("id", "arrow");
+  marker.setAttribute("markerWidth", "10");
+  marker.setAttribute("markerHeight", "10");
+  marker.setAttribute("refX", "10");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("orient", "auto");
+  marker.setAttribute("markerUnits", "strokeWidth");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+  path.setAttribute("fill", "#f05a28");
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  connections.appendChild(defs);
+}
+createArrowMarker();
+renderSlides();
+renderBreadcrumb();
+
+let isDraggingCanvas = false;
+let startX, startY;
+canvas.addEventListener('mousedown', (e) => {
+  if (e.target === canvas || e.target === viewport) {
+    isDraggingCanvas = true;
+    startX = e.clientX;
+    startY = e.clientY;
+  }
+});
+canvas.addEventListener('mousemove', (e) => {
+  if (draggingSlide) {
+    draggingSlide.x = (e.clientX - dragOffsetX - translateX) / scale;
+    draggingSlide.y = (e.clientY - dragOffsetY - translateY) / scale;
+    renderSlides();
+    return;
+  }
+  if (!isDraggingCanvas) return;
+  const dx = e.clientX - startX;
+  const dy = e.clientY - startY;
+  startX = e.clientX;
+  startY = e.clientY;
+  translateX += dx;
+  translateY += dy;
+  applyTransform();
+});
+canvas.addEventListener('mouseup', () => {
+  isDraggingCanvas = false;
+  draggingSlide = null;
+});
+canvas.addEventListener('mouseleave', () => {
+  isDraggingCanvas = false;
+  draggingSlide = null;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const delta = e.deltaY < 0 ? 1.1 : 0.9;
+  scale *= delta;
+  applyTransform();
+}, { passive: false });
+canvas.addEventListener('click', () => {
+  editingSlideId = null;
+  connectionStart = null;
+  renderSlides();
+});
+
+// --- Exportar e Importar ---
+function deepCopySlides(slides) {
+  return slides.map(s => ({
+    id: s.id,
+    x: s.x,
+    y: s.y,
+    text: s.text,
+    children: deepCopySlides(s.children || []),
+    connections: s.connections.map(c => ({ targetId: c.targetId, label: c.label }))
+  }));
+}
+
+function exportDiagram() {
+  const exportData = {
+    slides: deepCopySlides(rootSlides),
+  };
+  const json = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([json], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'diagrama.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importDiagram() {
+  fileInput.value = '';
+  fileInput.click();
+}
+fileInput.addEventListener('change', e => {
+  if (!fileInput.files.length) return;
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const data = JSON.parse(evt.target.result);
+      if (data.slides && Array.isArray(data.slides)) {
+        rootSlides = data.slides;
+        navigationStack = [{ slides: rootSlides, title: 'Raíz' }];
+        translateX = 0;
+        translateY = 0;
+        scale = 1;
+        applyTransform();
+        renderSlides();
+        renderBreadcrumb();
+      } else {
+        alert('Formato de archivo inválido');
+      }
+    } catch(err) {
+      alert('Error al leer archivo JSON');
+    }
+  }
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>
