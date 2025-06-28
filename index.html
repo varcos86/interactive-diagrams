@@ -176,7 +176,7 @@ const contextMenu = document.getElementById('context-menu');
 const shapeModal = document.getElementById('shape-modal');
 
 // Estructura raíz con diagrama completo
-let rootSlides = [];  // Vacío al iniciar
+let rootSlides = loadFromLocalStorage();  // Carga desde localStorage al iniciar
 let navigationStack = [{ slides: rootSlides, title: 'Raíz' }];
 let editingSlideId = null;
 let translateX = 0;
@@ -188,6 +188,19 @@ let draggingSlide = null;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let currentSlide = null;
+
+function loadFromLocalStorage() {
+  const data = localStorage.getItem('diagramData');
+  if (data) {
+    try {
+      const parsedData = JSON.parse(data);
+      return parsedData.slides || [];
+    } catch (e) {
+      console.error('Error al cargar datos del Local Storage', e);
+    }
+  }
+  return [];
+}
 
 function getCurrentLevel() {
   return navigationStack[navigationStack.length - 1];
@@ -233,6 +246,7 @@ function addConnectionLabel(slide, target) {
   const newLabel = prompt("Ingrese el texto para esta conexión:", conn.label);
   if (newLabel !== null) {
     conn.label = newLabel;
+    saveToLocalStorage();
     renderSlides();
   }
 }
@@ -261,6 +275,7 @@ function renameSlide(slide) {
   const newTitle = prompt("Ingrese el nuevo texto para la tarjeta:", slide.text || "");
   if (newTitle !== null && newTitle.trim() !== "") {
     slide.text = newTitle;
+    saveToLocalStorage();
     renderSlides();
     renderBreadcrumb();
   }
@@ -275,6 +290,7 @@ function deleteSlide(slide) {
     slides.forEach(s => {
       s.connections = s.connections.filter(c => c.targetId !== slide.id);
     });
+    saveToLocalStorage();
     renderSlides();
   }
 }
@@ -290,6 +306,7 @@ function addSlide(type) {
   const newSlide = { id, x: 100 + Math.random() * 600, y: 100 + Math.random() * 400, text: '', children: [], connections: [], type };
 
   currentSlides.push(newSlide);
+  saveToLocalStorage();
   renderSlides();
 }
 
@@ -337,6 +354,7 @@ function renderSlides() {
           if (!connExists) {
             connectionStart.connections.push({ targetId: slide.id, label: '' });
           }
+          saveToLocalStorage();
           connectionStart = null;
           renderSlides();
         }
@@ -455,6 +473,14 @@ createArrowMarker();
 renderSlides();
 renderBreadcrumb();
 
+// Guardar en localStorage
+function saveToLocalStorage() {
+  const exportData = {
+    slides: deepCopySlides(rootSlides),
+  };
+  localStorage.setItem('diagramData', JSON.stringify(exportData));
+}
+
 let isDraggingCanvas = false;
 let startX, startY;
 canvas.addEventListener('mousedown', (e) => {
@@ -468,6 +494,7 @@ canvas.addEventListener('mousemove', (e) => {
   if (draggingSlide) {
     draggingSlide.x = (e.clientX - dragOffsetX - translateX) / scale;
     draggingSlide.y = (e.clientY - dragOffsetY - translateY) / scale;
+    saveToLocalStorage();
     renderSlides();
     return;
   }
@@ -481,6 +508,7 @@ canvas.addEventListener('mousemove', (e) => {
   applyTransform();
 });
 canvas.addEventListener('mouseup', () => {
+  saveToLocalStorage();
   isDraggingCanvas = false;
   draggingSlide = null;
 });
@@ -493,6 +521,7 @@ canvas.addEventListener('wheel', (e) => {
   const delta = e.deltaY < 0 ? 1.1 : 0.9;
   scale *= delta;
   applyTransform();
+  saveToLocalStorage();
 }, { passive: false });
 canvas.addEventListener('click', () => {
   editingSlideId = null;
@@ -547,6 +576,7 @@ fileInput.addEventListener('change', e => {
         applyTransform();
         renderSlides();
         renderBreadcrumb();
+        saveToLocalStorage(); // Save imported data to local storage too
       } else {
         alert('Formato de archivo inválido');
       }
