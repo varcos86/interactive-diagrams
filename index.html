@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mini Prezi Editor</title>
+  <!-- Cargar Font Awesome desde CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
     body {
       margin: 0;
@@ -65,39 +67,57 @@
     }
     .slide {
       position: absolute;
-      width: 250px;
-      height: 150px;
-      background: white;
-      border: 2px solid #333;
-      border-radius: 10px;
-      box-shadow: 4px 4px 15px rgba(0, 0, 0, 0.2);
-      cursor: pointer;
-      overflow: hidden;
-      user-select: none;
       display: flex;
       align-items: center;
       justify-content: center;
-      text-align: center;
-      padding: 10px;
-      box-sizing: border-box;
+      flex-direction: column;
+      cursor: pointer;
+      overflow: hidden;
+      user-select: none;
+      font-size: 48px; /* Increase icon size */
+      color: #0077cc;
       transition: transform 0.2s;
+      text-align: center;
     }
     .slide:hover {
-      transform: translateY(-5px);
+      transform: scale(1.1); /* Slight increase on hover */
     }
-    .slide.editing textarea {
-      width: 100%;
-      height: 100%;
-      resize: none;
-      border: none;
-      outline: none;
-      font: inherit;
-      box-sizing: border-box;
-      padding: 10px;
+    .slide .text {
+      font-size: 14px;
+      margin-top: 5px;
+    }
+    #shape-modal {
+      display: none;
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      border: 1px solid #ccc;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      z-index: 200;
       border-radius: 8px;
-      background: #f9f9f9;
+      padding: 20px;
     }
-    /* Estilos para el menú contextual */
+    #shape-modal button {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 10px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+      transition: background 0.3s;
+      gap: 10px;
+    }
+    #shape-modal button:hover {
+      background: #e0e0e0;
+    }
+    #shape-modal .icon {
+      font-size: 24px;
+    }
     #context-menu {
       position: absolute;
       display: none;
@@ -123,7 +143,7 @@
 <div id="canvas">
   <svg id="connections" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:0;"></svg>
   <div id="toolbar">
-    <button onclick="addSlide()">Añadir diapositiva</button>
+    <button onclick="showShapeModal()">Añadir diapositiva</button>
     <button onclick="goBack()">Atrás</button>
     <button onclick="toggleConnectMode()">
       <span id="connectModeLabel">Modo: Navegación</span>
@@ -136,7 +156,14 @@
   <div id="viewport"></div>
   <ul id="context-menu">
     <li id="rename-slide">Cambiar nombre</li>
+    <li id="delete-slide">Eliminar</li>
   </ul>
+  <div id="shape-modal">
+    <h4>Seleccione la forma de la diapositiva</h4>
+    <button onclick="addSlide('user')"><i class="fa-solid fa-user icon"></i> Usuario</button>
+    <button onclick="addSlide('database')"><i class="fa-solid fa-database icon"></i> Base de Datos</button>
+    <button onclick="addSlide('server')"><i class="fa-solid fa-server icon"></i> Servidor</button>
+  </div>
 </div>
 <script>
 const canvas = document.getElementById('canvas');
@@ -146,9 +173,10 @@ const connectModeLabel = document.getElementById('connectModeLabel');
 const breadcrumbDiv = document.getElementById('breadcrumb');
 const fileInput = document.getElementById('fileInput');
 const contextMenu = document.getElementById('context-menu');
+const shapeModal = document.getElementById('shape-modal');
 
 // Estructura raíz con diagrama completo
-let rootSlides = [{ id: 0, x: 100, y: 100, text: 'Inicio', children: [], connections: [] }];
+let rootSlides = [];  // Vacío al iniciar
 let navigationStack = [{ slides: rootSlides, title: 'Raíz' }];
 let editingSlideId = null;
 let translateX = 0;
@@ -223,12 +251,14 @@ canvas.addEventListener('click', () => {
 contextMenu.addEventListener('click', e => {
   if (e.target.id === 'rename-slide') {
     renameSlide(currentSlide);
+  } else if (e.target.id === 'delete-slide') {
+    deleteSlide(currentSlide);
   }
   contextMenu.style.display = 'none';
 });
 
 function renameSlide(slide) {
-  const newTitle = prompt("Ingrese el nuevo nombre para la tarjeta:", slide.text);
+  const newTitle = prompt("Ingrese el nuevo texto para la tarjeta:", slide.text || "");
   if (newTitle !== null && newTitle.trim() !== "") {
     slide.text = newTitle;
     renderSlides();
@@ -236,16 +266,57 @@ function renameSlide(slide) {
   }
 }
 
+function deleteSlide(slide) {
+  const slides = getCurrentLevel().slides;
+  const idx = slides.indexOf(slide);
+
+  if (idx !== -1) {
+    slides.splice(idx, 1);
+    slides.forEach(s => {
+      s.connections = s.connections.filter(c => c.targetId !== slide.id);
+    });
+    renderSlides();
+  }
+}
+
+function showShapeModal() {
+  shapeModal.style.display = 'block';
+}
+
+function addSlide(type) {
+  shapeModal.style.display = 'none';
+  const currentSlides = getCurrentLevel().slides;
+  const id = Date.now() + Math.floor(Math.random() * 1000);
+  const newSlide = { id, x: 100 + Math.random() * 600, y: 100 + Math.random() * 400, text: '', children: [], connections: [], type };
+
+  currentSlides.push(newSlide);
+  renderSlides();
+}
+
 function renderSlides() {
   viewport.innerHTML = '';
   const currentSlides = getCurrentLevel().slides;
   currentSlides.forEach(slide => {
     const div = document.createElement('div');
-    div.className = 'slide';
+    div.className = `slide ${slide.type}`;
     div.style.left = `${slide.x}px`;
     div.style.top = `${slide.y}px`;
-    div.style.borderColor = (connectionStart === slide) ? '#f05a28' : '#333';
-    div.textContent = slide.text;
+
+    // Añadir icono y texto específico para cada tipo de tarjeta usando Font Awesome
+    switch (slide.type) {
+      case 'user':
+        div.innerHTML = '<i class="fa-solid fa-user"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'database':
+        div.innerHTML = '<i class="fa-solid fa-database"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'server':
+        div.innerHTML = '<i class="fa-solid fa-server"></i><div class="text">' + slide.text + '</div>';
+        break;
+      default:
+        div.innerHTML = slide.text;
+    }
+
     div.addEventListener('click', (e) => {
       e.stopPropagation();
       if (connectMode) {
@@ -312,14 +383,6 @@ function applyTransform() {
   drawConnections();
 }
 
-function addSlide() {
-  const currentSlides = getCurrentLevel().slides;
-  const id = Date.now() + Math.floor(Math.random() * 1000);
-  const newSlide = { id, x: 100 + Math.random() * 600, y: 100 + Math.random() * 400, text: 'Nueva', children: [], connections: [] };
-  currentSlides.push(newSlide);
-  renderSlides();
-}
-
 function drawConnections() {
   const savedDefs = connections.querySelector('defs');
   connections.innerHTML = '';
@@ -329,17 +392,17 @@ function drawConnections() {
     slide.connections.forEach(conn => {
       const child = currentSlides.find(s => s.id === conn.targetId);
       if (child) {
-        const slideCenterX = slide.x + 125;
-        const slideCenterY = slide.y + 75;
-        const childCenterX = child.x + 125;
-        const childCenterY = child.y + 75;
+        const slideCenterX = slide.x + 32; // Adjusted for new size
+        const slideCenterY = slide.y + 32;
+        const childCenterX = child.x + 32;
+        const childCenterY = child.y + 32;
 
         const dirX = childCenterX - slideCenterX;
         const dirY = childCenterY - slideCenterY;
         const dist = Math.sqrt(dirX * dirX + dirY * dirY);
 
-        const offsetX = (dirX / dist) * 125;
-        const offsetY = (dirY / dist) * 75;
+        const offsetX = (dirX / dist) * 32; // Adjusted for new size
+        const offsetY = (dirY / dist) * 32;
 
         const pX = slideCenterX + offsetX;
         const pY = slideCenterY + offsetY;
@@ -357,8 +420,8 @@ function drawConnections() {
         connections.appendChild(line);
 
         const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        const textX = (pX + cX) / 2 * scale + translateX - 10; // Desplaza el texto a la izquierda
-        const textY = (pY + cY) / 2 * scale + translateY - 10; // Desplaza el texto hacia arriba
+        const textX = (pX + cX) / 2 * scale + translateX - 10;
+        const textY = (pY + cY) / 2 * scale + translateY - 10;
         text.setAttribute("x", textX);
         text.setAttribute("y", textY);
         text.setAttribute("fill", "#000");
@@ -445,7 +508,8 @@ function deepCopySlides(slides) {
     y: s.y,
     text: s.text,
     children: deepCopySlides(s.children || []),
-    connections: s.connections.map(c => ({ targetId: c.targetId, label: c.label }))
+    connections: s.connections.map(c => ({ targetId: c.targetId, label: c.label })),
+    type: s.type
   }));
 }
 
