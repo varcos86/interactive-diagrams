@@ -148,6 +148,8 @@
     <button onclick="toggleConnectMode()">
       <span id="connectModeLabel">Modo: Navegación</span>
     </button>
+    <button onclick="clearAll()">Borrar Todo</button>
+    <button onclick="undo()">Deshacer</button>    
     <button onclick="exportDiagram()">Exportar Diagrama</button>
     <button onclick="importDiagram()">Importar Diagrama</button>
     <input type="file" id="fileInput" style="display:none" accept="application/json" />
@@ -163,6 +165,15 @@
     <button onclick="addSlide('user')"><i class="fa-solid fa-user icon"></i> Usuario</button>
     <button onclick="addSlide('database')"><i class="fa-solid fa-database icon"></i> Base de Datos</button>
     <button onclick="addSlide('server')"><i class="fa-solid fa-server icon"></i> Servidor</button>
+    <button onclick="addSlide('laptop')"><i class="fa-solid fa-laptop icon"></i> Laptop</button>
+    <button onclick="addSlide('cloud')"><i class="fa-solid fa-cloud icon"></i> Nube (Cloud)</button>
+    <button onclick="addSlide('network')"><i class="fa-solid fa-network-wired icon"></i> Red</button>
+    <button onclick="addSlide('webApp')"><i class="fa-solid fa-globe icon"></i> Aplicación Web</button>
+    <button onclick="addSlide('microservice')"><i class="fa-solid fa-cubes icon"></i> Microservicio</button>
+    <button onclick="addSlide('filesystem')"><i class="fa-solid fa-folder icon"></i> Sistema de Archivos</button>
+    <button onclick="addSlide('shellScript')"><i class="fa-solid fa-file-code icon"></i> Script de Shell</button>
+    <button onclick="addSlide('class')"><i class="fa-solid fa-chalkboard-teacher icon"></i> Clase</button>
+    <button onclick="addSlide('interface')"><i class="fa-solid fa-plug icon"></i> Interfaz</button>
   </div>
 </div>
 <script>
@@ -175,9 +186,10 @@ const fileInput = document.getElementById('fileInput');
 const contextMenu = document.getElementById('context-menu');
 const shapeModal = document.getElementById('shape-modal');
 
-// Estructura raíz con diagrama completo
+// Estructura raíz con diagrama completo y para deshacer
 let rootSlides = loadFromLocalStorage();  // Carga desde localStorage al iniciar
 let navigationStack = [{ slides: rootSlides, title: 'Raíz' }];
+let previousState = JSON.stringify(rootSlides);
 let editingSlideId = null;
 let translateX = 0;
 let translateY = 0;
@@ -246,7 +258,7 @@ function addConnectionLabel(slide, target) {
   const newLabel = prompt("Ingrese el texto para esta conexión:", conn.label);
   if (newLabel !== null) {
     conn.label = newLabel;
-    saveToLocalStorage();
+    saveState();
     renderSlides();
   }
 }
@@ -275,7 +287,7 @@ function renameSlide(slide) {
   const newTitle = prompt("Ingrese el nuevo texto para la tarjeta:", slide.text || "");
   if (newTitle !== null && newTitle.trim() !== "") {
     slide.text = newTitle;
-    saveToLocalStorage();
+    saveState();
     renderSlides();
     renderBreadcrumb();
   }
@@ -290,7 +302,7 @@ function deleteSlide(slide) {
     slides.forEach(s => {
       s.connections = s.connections.filter(c => c.targetId !== slide.id);
     });
-    saveToLocalStorage();
+    saveState();
     renderSlides();
   }
 }
@@ -306,7 +318,7 @@ function addSlide(type) {
   const newSlide = { id, x: 100 + Math.random() * 600, y: 100 + Math.random() * 400, text: '', children: [], connections: [], type };
 
   currentSlides.push(newSlide);
-  saveToLocalStorage();
+  saveState();
   renderSlides();
 }
 
@@ -329,6 +341,33 @@ function renderSlides() {
         break;
       case 'server':
         div.innerHTML = '<i class="fa-solid fa-server"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'laptop':
+        div.innerHTML = '<i class="fa-solid fa-laptop"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'cloud':
+        div.innerHTML = '<i class="fa-solid fa-cloud"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'network':
+        div.innerHTML = '<i class="fa-solid fa-network-wired"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'webApp':
+        div.innerHTML = '<i class="fa-solid fa-globe"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'microservice':
+        div.innerHTML = '<i class="fa-solid fa-cubes"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'filesystem':
+        div.innerHTML = '<i class="fa-solid fa-folder"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'shellScript':
+        div.innerHTML = '<i class="fa-solid fa-file-code"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'class':
+        div.innerHTML = '<i class="fa-solid fa-chalkboard-teacher"></i><div class="text">' + slide.text + '</div>';
+        break;
+      case 'interface':
+        div.innerHTML = '<i class="fa-solid fa-plug"></i><div class="text">' + slide.text + '</div>';
         break;
       default:
         div.innerHTML = slide.text;
@@ -354,7 +393,7 @@ function renderSlides() {
           if (!connExists) {
             connectionStart.connections.push({ targetId: slide.id, label: '' });
           }
-          saveToLocalStorage();
+          saveState();
           connectionStart = null;
           renderSlides();
         }
@@ -474,11 +513,33 @@ renderSlides();
 renderBreadcrumb();
 
 // Guardar en localStorage
+function saveState() {
+  previousState = JSON.stringify(rootSlides); // Save current state for undo
+  saveToLocalStorage();
+}
+
 function saveToLocalStorage() {
   const exportData = {
     slides: deepCopySlides(rootSlides),
   };
   localStorage.setItem('diagramData', JSON.stringify(exportData));
+}
+
+function clearAll() {
+  if (confirm("¿Estás seguro de que deseas borrar todo? Esta acción no se puede deshacer.")) {
+    rootSlides = [];
+    navigationStack = [{ slides: rootSlides, title: 'Raíz' }];
+    saveToLocalStorage();
+    renderSlides();
+    renderBreadcrumb();
+  }
+}
+
+function undo() {
+  rootSlides = JSON.parse(previousState);
+  navigationStack = [{ slides: rootSlides, title: 'Raíz' }];
+  renderSlides();
+  renderBreadcrumb();
 }
 
 let isDraggingCanvas = false;
@@ -494,7 +555,6 @@ canvas.addEventListener('mousemove', (e) => {
   if (draggingSlide) {
     draggingSlide.x = (e.clientX - dragOffsetX - translateX) / scale;
     draggingSlide.y = (e.clientY - dragOffsetY - translateY) / scale;
-    saveToLocalStorage();
     renderSlides();
     return;
   }
